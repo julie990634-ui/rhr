@@ -1,0 +1,67 @@
+-- ------------------------------------------------------------------------------
+-- 접근 정책 (컨트롤러별 정책)과 설정 변경 이력
+--
+-- 마스터접근제어 > 정책관리가 쓴다. 15_access_block.sql (TB_ACCESS_IP_RULE)과 16_webshell.sql
+-- (TB_SECURITY_SETTING)을 먼저 실행해야 한다.
+--   TB_ACCESS_PATH_POLICY  컨트롤러(경로)별 접근 정책. 그 경로에서는 전역 정책보다 우선한다.
+--                          경로 끝에 /* 를 붙이면 그 아래 모두이며, 정확히 일치하는 정책이 먼저다.
+--   TB_POLICY_HISTORY      정책을 바꾼 사람 · 시각 · 내용 (전역 정책, 차단/허용 IP, 컨트롤러별 정책,
+--                          시스템이 자동 등록한 차단 IP).
+--
+-- 전역 정책(access.scope: ALL / IP_ONLY)과 로그인 예외(access.exemptLogin / access.exemptOtp)는
+-- TB_SECURITY_SETTING 에 저장되며, 값이 없으면 모두 허용 · 예외 없음이다.
+-- 이 스크립트를 실행하지 않으면 정책관리 화면의 해당 영역만 "테이블이 없다"는 안내를 보여 주고,
+-- 컨트롤러별 정책 없이 기존 차단 / 허용 IP 규칙만 적용된다(요청은 평소처럼 처리된다).
+-- ------------------------------------------------------------------------------
+CREATE SEQUENCE SEQ_TB_ACCESS_PATH_POLICY START WITH 1 INCREMENT BY 1 NOCACHE;
+
+CREATE TABLE TB_ACCESS_PATH_POLICY (
+    POLICY_ID   NUMBER(10)      NOT NULL,
+    REQ_PATH    VARCHAR2(300)   NOT NULL,
+    POLICY_MODE VARCHAR2(10)    NOT NULL,
+    USE_YN      CHAR(1)         DEFAULT 'Y' NOT NULL,
+    ALLOW_IPS   VARCHAR2(1000),
+    BLOCK_IPS   VARCHAR2(1000),
+    MEMO        VARCHAR2(200),
+    UPDATED_BY  VARCHAR2(30),
+    UPDATED_DT  DATE            DEFAULT SYSDATE NOT NULL,
+    CONSTRAINT PK_TB_ACCESS_PATH_POLICY PRIMARY KEY (POLICY_ID),
+    CONSTRAINT UK_TB_ACCESS_PATH_POLICY UNIQUE (REQ_PATH),
+    CONSTRAINT CK_TB_ACCESS_PATH_MODE CHECK (POLICY_MODE IN ('ALLOW_ALL', 'ALLOW_IP', 'BLOCK')),
+    CONSTRAINT CK_TB_ACCESS_PATH_USE CHECK (USE_YN IN ('Y', 'N'))
+);
+
+COMMENT ON TABLE  TB_ACCESS_PATH_POLICY             IS '컨트롤러(경로)별 접근 정책';
+COMMENT ON COLUMN TB_ACCESS_PATH_POLICY.POLICY_ID   IS '정책 번호';
+COMMENT ON COLUMN TB_ACCESS_PATH_POLICY.REQ_PATH    IS '경로 (소문자, 끝에 /* 이면 하위 전체)';
+COMMENT ON COLUMN TB_ACCESS_PATH_POLICY.POLICY_MODE IS 'ALLOW_ALL(모두 허용) / ALLOW_IP(지정한 IP만 허용) / BLOCK(차단)';
+COMMENT ON COLUMN TB_ACCESS_PATH_POLICY.USE_YN      IS '사용 여부 (N 이면 적용하지 않음)';
+COMMENT ON COLUMN TB_ACCESS_PATH_POLICY.ALLOW_IPS   IS '허용 IP · IPv4 대역(콤마로 구분)';
+COMMENT ON COLUMN TB_ACCESS_PATH_POLICY.BLOCK_IPS   IS '이 경로에서 항상 차단할 IP · IPv4 대역(콤마로 구분)';
+COMMENT ON COLUMN TB_ACCESS_PATH_POLICY.MEMO        IS '메모';
+COMMENT ON COLUMN TB_ACCESS_PATH_POLICY.UPDATED_BY  IS '바꾼 담당자';
+COMMENT ON COLUMN TB_ACCESS_PATH_POLICY.UPDATED_DT  IS '바꾼 시각';
+
+CREATE SEQUENCE SEQ_TB_POLICY_HISTORY START WITH 1 INCREMENT BY 1 NOCACHE;
+
+CREATE TABLE TB_POLICY_HISTORY (
+    HIST_ID     NUMBER(12)      NOT NULL,
+    CHANGED_DT  DATE            DEFAULT SYSDATE NOT NULL,
+    CHANGED_BY  VARCHAR2(30),
+    SCOPE_NAME  VARCHAR2(20)    NOT NULL,
+    ACTION_NAME VARCHAR2(20)    NOT NULL,
+    TARGET      VARCHAR2(300),
+    DETAIL      VARCHAR2(500),
+    CONSTRAINT PK_TB_POLICY_HISTORY PRIMARY KEY (HIST_ID)
+);
+
+CREATE INDEX IDX_POLICY_HISTORY_DT ON TB_POLICY_HISTORY (CHANGED_DT);
+
+COMMENT ON TABLE  TB_POLICY_HISTORY             IS '접근 정책 설정 변경 이력';
+COMMENT ON COLUMN TB_POLICY_HISTORY.HIST_ID     IS '이력 번호';
+COMMENT ON COLUMN TB_POLICY_HISTORY.CHANGED_DT  IS '바뀐 시각';
+COMMENT ON COLUMN TB_POLICY_HISTORY.CHANGED_BY  IS '바꾼 담당자 (system 이면 자동 등록)';
+COMMENT ON COLUMN TB_POLICY_HISTORY.SCOPE_NAME  IS '구분: GLOBAL / BLOCK_IP / ALLOW_IP / PATH / AUTO';
+COMMENT ON COLUMN TB_POLICY_HISTORY.ACTION_NAME IS '작업: SAVE / RESET / ADD / DELETE / CLEAR';
+COMMENT ON COLUMN TB_POLICY_HISTORY.TARGET      IS '대상 (IP, 경로 등)';
+COMMENT ON COLUMN TB_POLICY_HISTORY.DETAIL      IS '내용';

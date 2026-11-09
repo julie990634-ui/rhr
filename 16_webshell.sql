@@ -1,0 +1,57 @@
+-- ------------------------------------------------------------------------------
+-- 웹셸 탐지 / 차단
+--
+-- 마스터접근제어 > 웹셸탐지가 쓴다. 14_security_event.sql 을 먼저 실행해야 한다.
+--   TB_SECURITY_EVENT  웹셸 이력에 필요한 열(메서드, 요청 헤더 요약, 조치 내역)을 더한다.
+--   TB_WEBSHELL_PATH   영구 차단 경로. 웹셸로 판단되어 차단된 경로가 등록되며 최우선으로 차단된다.
+--   TB_SECURITY_SETTING 마스터가 바꾸는 보안 옵션 (예: 웹셸 차단 시 출발지 IP 자동 등록).
+--
+-- 이 스크립트를 실행하지 않으면 웹셸탐지 화면은 "테이블이 없다"는 안내만 보여 주고,
+-- 웹셸 의심 호출의 차단 동작도 시작되지 않는다(요청은 평소처럼 처리된다).
+-- ------------------------------------------------------------------------------
+ALTER TABLE TB_SECURITY_EVENT ADD (
+    HTTP_METHOD VARCHAR2(10),
+    REQ_HEADER  VARCHAR2(1000),
+    NOTE        VARCHAR2(500)
+);
+
+COMMENT ON COLUMN TB_SECURITY_EVENT.HTTP_METHOD IS 'HTTP 메서드 (웹셸 관련 이벤트)';
+COMMENT ON COLUMN TB_SECURITY_EVENT.REQ_HEADER  IS '요청 헤더 요약 (쿠키 · 인증 헤더 값은 ***)';
+COMMENT ON COLUMN TB_SECURITY_EVENT.NOTE        IS '사유 · 조치 내역';
+
+CREATE SEQUENCE SEQ_TB_WEBSHELL_PATH START WITH 1 INCREMENT BY 1 NOCACHE;
+
+CREATE TABLE TB_WEBSHELL_PATH (
+    PATH_ID     NUMBER(10)      NOT NULL,
+    REQ_PATH    VARCHAR2(300)   NOT NULL,
+    REASON      VARCHAR2(200),
+    BLOCK_CNT   NUMBER(10)      DEFAULT 0 NOT NULL,
+    FIRST_DT    DATE            DEFAULT SYSDATE NOT NULL,
+    LAST_DT     DATE            DEFAULT SYSDATE NOT NULL,
+    LAST_IP     VARCHAR2(45),
+    CONSTRAINT PK_TB_WEBSHELL_PATH PRIMARY KEY (PATH_ID),
+    CONSTRAINT UK_TB_WEBSHELL_PATH UNIQUE (REQ_PATH)
+);
+
+COMMENT ON TABLE  TB_WEBSHELL_PATH           IS '웹셸 영구 차단 경로';
+COMMENT ON COLUMN TB_WEBSHELL_PATH.PATH_ID   IS '경로 번호';
+COMMENT ON COLUMN TB_WEBSHELL_PATH.REQ_PATH  IS '차단 경로 (소문자, 쿼리스트링 제외)';
+COMMENT ON COLUMN TB_WEBSHELL_PATH.REASON    IS '차단 사유';
+COMMENT ON COLUMN TB_WEBSHELL_PATH.BLOCK_CNT IS '차단 횟수 (기록 한도를 넘은 요청은 세지 않음)';
+COMMENT ON COLUMN TB_WEBSHELL_PATH.FIRST_DT  IS '최초 차단 시각';
+COMMENT ON COLUMN TB_WEBSHELL_PATH.LAST_DT   IS '최근 차단 시각';
+COMMENT ON COLUMN TB_WEBSHELL_PATH.LAST_IP   IS '최근 출발지 IP';
+
+CREATE TABLE TB_SECURITY_SETTING (
+    SETTING_KEY   VARCHAR2(50)  NOT NULL,
+    SETTING_VALUE VARCHAR2(200),
+    UPDATED_BY    VARCHAR2(30),
+    UPDATED_DT    DATE          DEFAULT SYSDATE NOT NULL,
+    CONSTRAINT PK_TB_SECURITY_SETTING PRIMARY KEY (SETTING_KEY)
+);
+
+COMMENT ON TABLE  TB_SECURITY_SETTING               IS '보안 옵션';
+COMMENT ON COLUMN TB_SECURITY_SETTING.SETTING_KEY   IS '옵션 이름 (예: webshell.autoBlockIp)';
+COMMENT ON COLUMN TB_SECURITY_SETTING.SETTING_VALUE IS '옵션 값 (Y / N 등)';
+COMMENT ON COLUMN TB_SECURITY_SETTING.UPDATED_BY    IS '바꾼 담당자';
+COMMENT ON COLUMN TB_SECURITY_SETTING.UPDATED_DT    IS '바꾼 시각';
